@@ -4,16 +4,15 @@ import tempfile
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_groq import ChatGroq
+from langchain.prompts import PromptTemplate
 
 
 def load_llm():
     return ChatGroq(
-	model="llama-3.3-70b-versatile",
-	api_key=os.environ.get("GROQ_API_KEY"),
+        model="llama-3.3-70b-versatile",
+        api_key=os.environ.get("GROQ_API_KEY"),
         temperature=0
     )
 
@@ -38,9 +37,17 @@ def build_vectorstore(chunks):
 
 
 def build_qa_chain(vectorstore, llm):
-    prompt = PromptTemplate(
-        input_variables=["context", "question"],
-        template="""Answer in one short sentence using only the context below.
+    return {"vectorstore": vectorstore, "llm": llm}
+
+
+def ask(qa_chain, question):
+    vectorstore = qa_chain["vectorstore"]
+    llm = qa_chain["llm"]
+
+    docs = vectorstore.similarity_search(question, k=4)
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    prompt = f"""Answer in one short sentence using only the context below.
 If the answer is not in the context, say I don't know.
 
 Context:
@@ -48,19 +55,8 @@ Context:
 
 Question: {question}
 Answer:"""
-    )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-    return RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        return_source_documents=True,
-        chain_type_kwargs={"prompt": prompt}
-    )
 
-
-def ask(qa_chain, question):
-    result = qa_chain.invoke({"query": question})
-    answer = result["result"].strip()
-    sources = [doc.page_content[:300] for doc in result["source_documents"]]
+    response = llm.invoke(prompt)
+    answer = response.content.strip()
+    sources = [doc.page_content[:300] for doc in docs]
     return answer, sources
